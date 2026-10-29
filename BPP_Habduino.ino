@@ -1,4 +1,24 @@
 /*
+Code updated by Madaleine Tewey
+It's just BPP now no SSL lol
+Hallowee 2026
+Re-added some macros that weren't defined so we can update callsigns
+I will leave them as W3EAX so they aren't my own but plz change them
+I'm not sure how long W3EAX will be happy with us using their callsign and we have our own so we should use it
+The habduino 4.1 transmits on both aprs and lora frequency. The one you can specifiy below is for lora
+Haven't tested lora frequency.
+
+Make sure you use like a R3 arduino not like a R4 whateveritscalled with a usbc. Won't work if it isn't an AVR microcontroller
+
+There are libraries to download, I hopefully listed them all. Most if not all are just in the library manager.
+You may need to download the I2C library specified in the habduino updated github (like flextracker or something).
+
+The main habduino site is not availble but the code and small documentation + hardware are given on it's github (not ours)
+
+The rest below is old acknowledgements n stuff:
+
+
+
  University of Maryland Balloon Payload Program HABDuino Tracker Software
  http://nearspace.umd.edu; http://ssl.umd.edu
  Copyright (c) 2017 University of Maryland Space Systems Laboratory
@@ -74,18 +94,38 @@ See HABDuino Project copyright notice below.
 
 /* BITS YOU WANT TO AMEND */
 
-#define MTX2_FREQ 434.485 // format 434.XXX  
-char callsign[9] = "W3EAX-13";  // MAX 9 CHARACTERS!! SSL/BPP change to match call sign
+#define MTX2_FREQ 434.485 // format 434.XXX 
+// This is for the lora radio, not the aprs one
+// I believe we transmit on both freqs, the callsign below is for the lora one 
+char callsign[9] = "KC3YVO-3";  // MAX 9 CHARACTERS!! SSL/BPP change to match call sign
+// You want to include callsign plus the ssid in this
+// SSID e.g. -XX gives more information for your transmitting type, there should be a chart just google it
+// W3EAX 11 and 12 are in use by HAPL command so we are using 13.
+
+#define APRS // Enable APRS stuff (it was enabled without this added, so i think the macro saved)
+// Um just uncomment the things below if you want to update the callsign lol
+//#define APRS_CALLSIGN "W3EAX" // define the APRS callsign, do not include the dash extension in this
+//#define APRS_SSID (13) // define the number after the dash, this is for extensions to say what it's for
+//there is also the APRS_TX below which is a multipler for 60 seconds for how often you choose to transmit APRS packets
+//This may need to be changed in the case of interferrence on the flightline but I have no idea how that works
+// I think you just need to offset when things turn on and lock gps????? I have no idea I just try to make lights turn on
+
+// To test if this works with APRS, plug one of the baofengs into the rugged laptop and use direwolf or whatever. idk dont ask me rn i dont know
 
 /* BELOW HERE YOU PROBABLY DON'T WANT TO BE CHANGING STUFF */
 
-#include <util/crc16.h>
-#include <avr/io.h>
+
+// Since this probably references https://github.com/daveake/FlexTrack/tree/master, make sure to include the library I2C linked in the readme
+
+// If any of these give you verification erros, make sure the board at the top left of your menu is Arduino Uno
+// If it's the R4 one it may not verify correctly since it's not avr.
+#include <util/crc16.h> // This should be included with the IDE
+#include <avr/io.h> // Download AVR library I already forgot but apparently this is also just included with the IDE maybe
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#include <SoftwareSerial.h>
+#include <OneWire.h> // Download by looking this library up in the library manager
+#include <DallasTemperature.h> // Download by looking this library up in the library manager
+#include <SoftwareSerial.h> // If you don't have just look up softwareserial
 #include "ax25modem.h"
 static const uint8_t PROGMEM _sine_table[] = {
 #include "sine_table.h"
@@ -102,7 +142,8 @@ static const uint8_t PROGMEM _sine_table[] = {
 #define MTX2_TXD 4
 #define MTX2_ENABLE 7
 
-
+#define APRS_TX_INTERVAL 1
+//#define APRS
 #define HX1_ENABLE 6
 #define HX1_TXD 3
 #define GPS_ON 2
@@ -136,7 +177,7 @@ volatile boolean lockvariables = 0;
 volatile static uint8_t *_txbuf = 0;
 volatile static uint8_t  _txlen = 0;
 
-int errorstatus=0;
+int errorstatus=0; // ffffffffffffffffffffffffffffffffffffffffff
 /* Error Status Bit Level Field :
  Bit 0 = GPS Error Condition Noted Switch to Max Performance Mode
  Bit 1 = GPS Error Condition Noted Cold Boot GPS
@@ -276,6 +317,10 @@ void loop()   {
     wait(125);
     setupGPS();
   }
+  //printError(errorstatus);
+  //delay(1000);
+  //tx_testaprs();
+  //delay(10000);
 }
 
 void initialise_interrupt() 
@@ -599,7 +644,11 @@ void blinkled(int blinks)
 {
   for(int blinkledx = 0; blinkledx <= blinks; blinkledx++) {
     digitalWrite(LED_WARN,HIGH);
-    wait(100);
+    wait(25);
+    digitalWrite(LED_WARN,LOW);
+    wait(25);
+    digitalWrite(LED_WARN,HIGH);
+    wait(50);
     digitalWrite(LED_WARN,LOW);
     wait(100);
   }    
@@ -868,6 +917,58 @@ void ax25_init(void)
   pinMode(HX1_TXD, OUTPUT);
 }
 
+void tx_testaprs()
+{
+  aprstxstatus=1;
+  PORTD |= _BV(HX1_ENABLE); // Same as digitalWrite(HX1_ENABLE, HIGH); but more efficient
+  char slat[5];
+  char slng[5];
+  char stlm[9];
+  static uint16_t seq = 0;
+  double aprs_lat, aprs_lon;
+
+  /* Convert the UBLOX-style coordinates to
+   	 * the APRS compressed format */
+  aprs_lat = 3859.57;
+  aprs_lon = 07656.36;
+  int32_t aprs_alt = 23;
+  // int32_t aprs_alt = alt * 32808 / 10000;
+
+
+  /* Construct the compressed telemetry format */
+  ax25_base91enc(stlm + 0, 2, seq);
+  if(tempsensors==1)
+  {
+    ax25_frame(
+    APRS_CALLSIGN, APRS_SSID,
+    "APRS", 0,
+    //0, 0, 0, 0,
+    "WIDE1", 1, "WIDE2",1,
+    //"WIDE2", 1,
+    "!/%s%sO   /A=%06ld|%s|%s/%s,%d,%i,%i'C,nearspace.umd.edu",
+    ax25_base91enc(slat, 4, aprs_lat),
+    ax25_base91enc(slng, 4, aprs_lon),
+    aprs_alt, stlm, comment,APRS_CALLSIGN, count, errorstatus,temperature1
+      );
+  }
+  else
+  {
+    ax25_frame(
+    APRS_CALLSIGN, APRS_SSID,
+    "APRS", 0,
+    //0, 0, 0, 0,
+    "WIDE1", 1, "WIDE2",1,
+    //"WIDE2", 1,
+    "!/%s%sO   /A=%06ld|%s|%s/%s,%d,%i,%i,%i'C,http://habduino.org",
+    ax25_base91enc(slat, 4, aprs_lat),
+    ax25_base91enc(slng, 4, aprs_lon),
+    aprs_alt, stlm, comment,APRS_CALLSIGN, count, errorstatus,temperature1,temperature2
+      );
+  }
+  seq++;
+}
+
+
 void tx_aprs()
 {
   aprstxstatus=1;
@@ -1098,6 +1199,16 @@ uint16_t crccat(char *msg)
   snprintf_P(msg, 8, PSTR("*%04X\n"), x);
 
   return(x);
+}
+
+void printError(int errorstatus){
+  for(int x = 0; x < errorstatus; x++){
+    digitalWrite(LED_OK, HIGH);
+    delay(100);
+    digitalWrite(LED_OK, LOW);
+    delay(100);
+  }
+  delay(1000);
 }
 
 
